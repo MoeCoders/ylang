@@ -4,10 +4,10 @@ import (
 	"bufio"
 	"fmt"
 	"io"
+	"math"
 	"os"
 	"regexp"
 	"strconv"
-	"math"
 )
 
 type (
@@ -43,7 +43,7 @@ func (s *codeList) readFile(filePath string) error {
 		if err != nil && err != io.EOF {
 			return err
 		}
-		if len(line) > 0 && line != "\n"{
+		if len(line) > 0 && line != "\n" {
 			*s = append(*s, line)
 		}
 		if err == io.EOF {
@@ -53,12 +53,39 @@ func (s *codeList) readFile(filePath string) error {
 }
 
 // 词法分析器(lexer)：将代码字符串解析为token切片
-func lex(input string) code {
-    pattern := `-?\d+(\.\d+)?|[+\-*/\^()]`
-    re := regexp.MustCompile(pattern)
-    result := re.FindAllString(input, -1)
-	fmt.Println(result)
-	return result
+func lex(input string) (code, error) {
+	pattern := `\d+(\.\d+)?|[+\-*/\^()]`
+	re := regexp.MustCompile(pattern)
+	tokens := re.FindAllString(input, -1)
+	matchRe, err := regexp.Compile(`^[+\\-]$`)
+	if err != nil {
+		return nil, err
+	}
+	nRe, err := regexp.Compile(`^[()+\\-\\*/\\^]$`)
+	if err != nil {
+		return nil, err
+	}
+	for i, v := range tokens {
+		match := matchRe.MatchString(v)
+		if err != nil {
+			return nil, err
+		}
+		if i == 0 && match {
+			tokens[1] = tokens[0] + tokens[1]
+			tokens = tokens[1:]
+			continue
+		} else if i > 0 && match {
+			n := nRe.MatchString(tokens[i-1])
+			if err != nil {
+				return nil, err
+			}
+			if n {
+				tokens[i+1] = tokens[i] + tokens[i+1]
+				tokens = append(tokens[:i], tokens[i+1:]...)
+			}
+		}
+	}
+	return tokens, nil
 }
 
 // 解释器(evaluator)：读取 token 并进行计算
@@ -68,7 +95,7 @@ func eval(tokens code) (float64, error) {
 	opStack := []string{}
 	for _, token := range tokens {
 		switch token {
-		case "+", "-", "*", "/" ,"^":
+		case "+", "-", "*", "/", "^":
 			for len(opStack) > 0 && isHigherOrEqualPrecedence(opStack[len(opStack)-1], token) {
 				if err := evaluateTopOfStack(&numStack, &opStack); err != nil {
 					return 0, err
@@ -78,7 +105,7 @@ func eval(tokens code) (float64, error) {
 		case "(":
 			opStack = append(opStack, token)
 		case ")":
-			for len(opStack) >0 && opStack[len(opStack)-1] != "(" {
+			for len(opStack) > 0 && opStack[len(opStack)-1] != "(" {
 				if err := evaluateTopOfStack(&numStack, &opStack); err != nil {
 					return 0, err
 				}
@@ -113,19 +140,19 @@ func isHigherOrEqualPrecedence(op1, op2 string) bool {
 	if op2 == "^" {
 		return false
 	}
-    if op1 == "*" || op1 == "/" {
-        return true
-    }
-    if op2 == "*" || op2 == "/" {
-        return false
-    }
-    if op1 == "(" {
-        return false
-    }
-    if op2 == "(" {
-        return true
-    }
-    return true
+	if op1 == "*" || op1 == "/" {
+		return true
+	}
+	if op2 == "*" || op2 == "/" {
+		return false
+	}
+	if op1 == "(" {
+		return false
+	}
+	if op2 == "(" {
+		return true
+	}
+	return true
 }
 
 func evaluateTopOfStack(numStack *[]float64, opStack *[]string) error {
@@ -142,7 +169,7 @@ func evaluateTopOfStack(numStack *[]float64, opStack *[]string) error {
 	var result float64
 	switch op {
 	case "^":
-		result = math.Pow(num1,num2)
+		result = math.Pow(num1, num2)
 	case "+":
 		result = num1 + num2
 	case "-":
@@ -161,7 +188,11 @@ func evaluateTopOfStack(numStack *[]float64, opStack *[]string) error {
 
 func (s *codeList) run() {
 	for _, v := range *s {
-		tokens := lex(v)
+		tokens, err := lex(v)
+		if err != nil {
+			fmt.Println(err)
+			return
+		}
 		result, err := eval(tokens)
 		if err != nil {
 			fmt.Println("error: ", err)
@@ -171,12 +202,40 @@ func (s *codeList) run() {
 	}
 }
 
-func main() {
-	var codes codeList
-	err := codes.readFile("test.y")
-	if err != nil {
-		fmt.Println(err)
-		return
+func cli() {
+	var codes codeList = make(codeList, 1)
+	for {
+		fmt.Printf(">>> ")
+		var c string
+		fmt.Scanln(&c)
+		if c == "exit" {
+			fmt.Println("Goodbye!")
+			return
+		}
+		codes[0] = c
+		codes.run()
 	}
-	codes.run()
+}
+
+func help() {
+	fmt.Printf("")
+}
+
+func main() {
+	if len(os.Args) > 2 {
+		switch os.Args[1] {
+		case "run":
+			var codes codeList
+			err := codes.readFile(os.Args[2])
+			if err != nil {
+				fmt.Println(err)
+				return
+			}
+			codes.run()
+			return
+		default:
+			help()
+		} }else if len(os.Args) == 1{
+            cli()
+		}
 }
